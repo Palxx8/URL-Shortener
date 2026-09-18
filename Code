@@ -1,0 +1,194 @@
+import csv
+import os
+import random
+import socket
+import ssl
+import string
+import urllib.error
+import urllib.request
+import webbrowser
+from urllib.parse import urlparse
+
+D = "urls.csv"
+
+
+def load_urls():
+    urls = {}
+    if os.path.exists(D):
+        with open(D, mode="r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                urls[row["short_code"]] = {
+                    "url": row["url"],
+                    "clicks": int(row["clicks"]),
+                }
+    return urls
+
+
+def save_urls(urls):
+    with open(D, mode="w", newline="", encoding="utf-8") as file:
+        fieldnames = ["short_code", "url", "clicks"]
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for b, c in urls.items():
+            writer.writerow(
+                {
+                    "short_code": b,
+                    "url": c["url"],
+                    "clicks": c["clicks"],
+                }
+            )
+
+
+def is_valid_url(url):
+    try:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+        }
+
+        req = urllib.request.Request(url, headers=headers, method="HEAD")
+
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as response:
+            return response.status < 400
+
+    except urllib.error.HTTPError as e:
+        return e.code in (403, 405)
+    except (urllib.error.URLError, Exception):
+        try:
+            parsed = urlparse(url)
+            domain = parsed.hostname
+            if not domain:
+                return False
+            with socket.create_connection((domain, 443), timeout=3):
+                return True
+        except OSError:
+            return False
+
+
+def make_readable_code(url):
+    z = (
+        url.replace("https://", "").replace("http://", "").replace("www.", "")
+    )
+    p = z.split("/")
+    x = p[0]
+    y = x.split(".")[0]
+
+    if not y:
+        y = "link"
+
+    r2 = string.ascii_letters + string.digits
+    s = "".join(random.choice(r2) for _ in range(3))
+    return f"{y}-{s}"
+
+
+def shorten_url():
+    long_url = input("\nEnter the long URL: ").strip()
+
+    if not long_url.startswith("http://") and not long_url.startswith(
+        "https://"
+    ):
+        long_url = "https://" + long_url
+
+    print("Checking website availability...")
+    if not is_valid_url(long_url):
+        print("Warning: Could not connect to that URL.")
+        proceed = input("Do you still want to save it anyway? (y/n): ").lower()
+        if proceed != "y":
+            return
+
+    urls = load_urls()
+
+    custom_alias = input("Enter custom alias (press Enter to skip): ").strip()
+
+    if custom_alias:
+        if custom_alias in urls:
+            print(
+                f"\nError: Alias '{custom_alias}' is already in use! Try"
+                " another."
+            )
+            return
+        short_code = custom_alias
+    else:
+        short_code = make_readable_code(long_url)
+        while short_code in urls:
+            short_code = make_readable_code(long_url)
+
+    urls[short_code] = {"url": long_url, "clicks": 0}
+
+    save_urls(urls)
+    print(f"\nSuccess! Short code created: {short_code}")
+
+
+def find_url():
+    short_code = input("\nEnter the short code or alias: ").strip()
+    urls = load_urls()
+
+    if short_code in urls:
+        urls[short_code]["clicks"] += 1
+        save_urls(urls)
+
+        long_url = urls[short_code]["url"]
+        click_count = urls[short_code]["clicks"]
+        n = f"\nOriginal URL: {long_url}"
+        m = f"Total Clicks: {click_count}"
+        print(n)
+        print(m)
+
+        open_choice = input("Open this link in browser? (y/n): ").lower()
+        if open_choice == "y":
+            webbrowser.open(long_url)
+    else:
+        print("\nError: Short code or alias not found!")
+
+
+def list_urls():
+    urls = load_urls()
+
+    if not urls:
+        print("\nNo saved URLs found in persistent storage.")
+        return
+
+    print("\n--- Saved URLs & Analytics ---")
+    print(f"{'Code/Alias':<18} | {'Clicks':<8} | {'Original URL'}")
+    print("-" * 65)
+
+    for b, c in urls.items():
+        print(f"{b:<18} | {c['clicks']:<8} | {c['url']}")
+
+
+def main():
+    while True:
+        print("\n=== URL Shortener (CSV Storage) ===")
+        print("1. Shorten a URL (with optional Custom Alias)")
+        print("2. Find / Open a URL (Tracks Clicks)")
+        print("3. List all saved URLs & Stats")
+        print("4. Exit")
+
+        choice = input("Choose an option (1-4): ").strip()
+
+        if choice == "1":
+            shorten_url()
+        elif choice == "2":
+            find_url()
+        elif choice == "3":
+            list_urls()
+        elif choice == "4":
+            print("\nGoodbye!")
+            break
+        else:
+            print("\nInvalid choice. Please enter 1, 2, 3, or 4.")
+
+
+if __name__ == "__main__":
+    main()
